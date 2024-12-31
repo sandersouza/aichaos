@@ -1,0 +1,46 @@
+{
+    "version": "1.0",
+    "title": "krb5: GSS message token handling",
+    "description": "In MIT Kerberos 5 (aka krb5) before 1.21.3, an attacker can cause invalid memory reads during GSS message token handling by sending message tokens with invalid length fields.",
+    "steady-state-hypothesis": {
+        "title": "Service is healthy",
+        "probes": [
+            {
+                "type": "http",
+                "name": "check_service_health",
+                "url": "http://localhost:8080/health",
+                "method": "GET",
+                "timeout": 5,
+                "success": {
+                    "status": [
+                        200
+                    ]
+                }
+            }
+        ],
+        "tolerance": 0.1
+    },
+    "method": [
+        {
+            "type": "http",
+            "name": "send_invalid_gss_token",
+            "url": "http://localhost:8080/gss",
+            "method": "POST",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "payload": {
+                "token": "invalid_length_token"
+            },
+            "timeout": 5
+        }
+    ],
+    "rollbacks": [],
+    "schedule": [
+        {
+            "delay": 0,
+            "duration": 60,
+            "repeat": 1
+        }
+    ]
+}

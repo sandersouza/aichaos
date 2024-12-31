@@ -3,89 +3,102 @@ import os
 import json
 import openai
 import yaml
+import re
 
-# Diretórios
-REPORTS_DIR = os.getenv("REPORTS_DIR", "trivy_reports")
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "chaos_experiments")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# Carregar a chave da API do arquivo config.yml
-def load_api_key(config_file="config.yml"):
+def load_config(config_file="config.yml"):
     try:
         with open(config_file, "r") as file:
             config = yaml.safe_load(file)
-        return config["token"]["OPENAI_API_KEY"]
+        return config
     except FileNotFoundError:
         print("Erro: Arquivo config.yml não encontrado.")
         return None
-    except KeyError:
-        print("Erro: Chave 'OPENAI_API_KEY' não encontrada no config.yml.")
-        return None
-    except Exception as e:
+    except yaml.YAMLError as e:
         print(f"Erro ao carregar o arquivo de configuração: {e}")
         return None
 
-def initialize_prompt():
-    return """
-    Uso Chaos Monkey para execução de chaos no meu ambiente. Todo experimento deve usar a sintaxe do Chaos Monkey.
-    Analise as vulnerabilidades abaixo e crie experimentos individuais para cada uma no formato JSON, sem explicações adicionais.
-    """
+config = load_config()
+if not config:
+    exit(1)
+
+API_KEY = config["token"]["OPENAI_API_KEY"]
+REPORTS_DIR = config["dir"]["vulnerabilities"]
+OUTPUT_DIR = config["dir"]["chaosexperiments"]
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+SYSTEM_MESSAGE_CONTENT = (
+    "Você é um especialista em criação de experimentos de chaos usando a ferramenta Chaos Toolkit 1.19.0 ( chaos, version 1.19.0 ). "
+    "Crie experimentos válidos no formato JSON focador nas vulnerabilidades críticas. Não inclua URLs fictícias como 'http://your-service/...', "
+    "e caso não tenha opção não o crie. Certifique-se de adicionar um `steady-state-hypothesis` com `tolerance` válido. "
+    "Não gere experimentos que necessitem de ajustes manuais. Não adicione comentários ou instruções, gere somente os scripts."
+    "Não use funções customizadas, use apenas as features default."
+)
 
 def sanitize_filename(filename):
-    """Sanitiza o nome do arquivo, removendo caracteres problemáticos."""
     return filename.replace(":", "").replace(" ", "_").replace("/", "_").replace(".", "_").replace("\\", "_").lower()
 
-def get_image_info_from_report(file_path):
-    """Recupera informações da imagem a partir do arquivo JSON gerado pelo scan.sh."""
+def get_unique_filepath(base_path):
+    if not os.path.exists(base_path):
+        return base_path
+
+    base, ext = os.path.splitext(base_path)
+    counter = 1
+    new_path = f"{base}_{counter}{ext}"
+    while os.path.exists(new_path):
+        counter += 1
+        new_path = f"{base}_{counter}{ext}"
+
+    return new_path
+
+def extract_json_from_response(content):
     try:
-        with open(file_path, "r") as file:
-            data = json.load(file)
-            artifact_name = data.get("ArtifactName", "")
-            metadata = data.get("Metadata", {})
-            image_id = metadata.get("ImageID", "")
-            created_at = data.get("CreatedAt", "")
-            size = metadata.get("Size", "")
-
-            # Separar nome e tag da ArtifactName
-            if ":" in artifact_name:
-                image_name, tag = artifact_name.split(":", 1)
-            else:
-                image_name, tag = artifact_name, ""
-
-            return {
-                "image": image_name,
-                "_id": image_id,
-                "tag": tag,
-                "created": created_at,
-                "size": size
-            }
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Erro ao processar o arquivo {file_path}: {e}")
+        # Captura o conteúdo entre ```json e ```
+        match = re.search(r"```json(.*?)```", content, re.DOTALL)
+        if match:
+            json_content = match.group(1).strip()
+            return json_content
+        else:
+            print("Nenhum JSON válido encontrado no conteúdo gerado.")
+            return None
+    except Exception as e:
+        print(f"Erro ao extrair JSON: {e}")
         return None
 
-def analyze_vulnerability(vulnerability, base_prompt):
-    """Gera o experimento baseado na vulnerabilidade."""
-    prompt = f"{base_prompt}\n    - Título: {vulnerability.get('Title', 'Título não disponível')}\n    - Descrição: {vulnerability.get('Description', 'Descrição não disponível')}"
-    
+def analyze_vulnerability(vulnerability):
+    prompt = f"{SYSTEM_MESSAGE_CONTENT}\n- Título: {vulnerability.get('Title', 'Título não disponível')}\n- Descrição: {vulnerability.get('Description', 'Descrição não disponível')}"
+
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Você é um assistente especializado em criar experimentos de Chaos Engineering para o Chaos Monkey."},
+                {"role": "system", "content": SYSTEM_MESSAGE_CONTENT},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=1000,
             temperature=0.7
         )
-        return response['choices'][0]['message']['content'].strip()
+
+        content = response['choices'][0]['message']['content'].strip()
+        json_content = extract_json_from_response(content)
+
+        print(f"{json_content}")
+
+        if json_content:
+            try:
+                parsed_content = json.loads(json_content)
+                return json.dumps(parsed_content, indent=4)
+            except json.JSONDecodeError:
+                print(f"Erro: O JSON extraído não é válido para '{vulnerability.get('Title', 'Título não disponível')}'.")
+                return None
+        else:
+            return None
+
     except openai.error.OpenAIError as e:
         print(f"Erro ao gerar experimento para '{vulnerability.get('Title', 'Título não disponível')}': {e}")
         return None
 
 def process_reports():
-    """Processa todos os relatórios de vulnerabilidades e gera experimentos."""
-    base_prompt = initialize_prompt()
-
     for file_name in os.listdir(REPORTS_DIR):
         if file_name.endswith(".json"):
             file_path = os.path.join(REPORTS_DIR, file_name)
@@ -97,44 +110,25 @@ def process_reports():
                 print(f"Erro ao ler o arquivo {file_path}: {e}")
                 continue
 
-            image_info = get_image_info_from_report(file_path)
-            if not image_info:
-                print(f"Não foi possível extrair informações da imagem para {file_path}.")
-                continue
-
-            image_name = sanitize_filename(image_info["image"])
+            image_name = sanitize_filename(data.get("ArtifactName", "unknown"))
             image_dir = os.path.join(OUTPUT_DIR, image_name)
             os.makedirs(image_dir, exist_ok=True)
-
-            # Gerar o arquivo info.json com informações da imagem
-            info_file_path = os.path.join(image_dir, "info.json")
-            with open(info_file_path, "w") as info_file:
-                json.dump(image_info, info_file, indent=4)
 
             vulnerabilities = data.get("Results", [])
             for result in vulnerabilities:
                 vulns = result.get("Vulnerabilities", [])
                 for vulnerability in vulns:
                     if vulnerability.get("Severity", "").upper() == "CRITICAL":
-                        experiment_content = analyze_vulnerability(vulnerability, base_prompt)
+                        experiment_content = analyze_vulnerability(vulnerability)
                         if experiment_content:
                             experiment_title = sanitize_filename(vulnerability.get("Title", "experiment"))
-                            experiment_file_path = os.path.join(image_dir, f"{experiment_title}.txt")
-                            
-                            # Conteúdo do experimento não modificado
-                            with open(experiment_file_path, "w") as experiment_file:
+                            experiment_file_path = os.path.join(image_dir, f"{experiment_title}.json")
+                            unique_file_path = get_unique_filepath(experiment_file_path)
+
+                            with open(unique_file_path, "w") as experiment_file:
                                 experiment_file.write(experiment_content)
-                            print(f"Experimento gerado: {experiment_file_path}")
+                            print(f"Experimento gerado e salvo: {unique_file_path}")
 
 if __name__ == "__main__":
-    # Carregar chave da API
-    api_key = load_api_key()
-    if not api_key:
-        print("Erro: não foi possível carregar a chave da API do OpenAI.")
-        exit(1)
-
-    # Configurar a chave da API para o OpenAI
-    openai.api_key = api_key
-
-    # Processar os relatórios
+    openai.api_key = API_KEY
     process_reports()

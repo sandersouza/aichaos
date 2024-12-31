@@ -1,3 +1,6 @@
+# MacOS Files
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -23,3 +26,5 @@ config.yml
 #Data Directories
 chaos_experiments
 trivy_reports
+chaoslib.egg-info
+build
