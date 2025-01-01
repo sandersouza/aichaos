@@ -29,8 +29,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SYSTEM_MESSAGE_CONTENT = (
     "Você é um especialista em criação de experimentos de chaos usando a ferramenta Chaos Toolkit 1.19.0 ( chaos, version 1.19.0 ). "
-    "Crie experimentos válidos no formato JSON focador nas vulnerabilidades críticas. Não inclua URLs fictícias como 'http://your-service/...', "
-    "e caso não tenha opção não o crie. Certifique-se de adicionar um `steady-state-hypothesis` com `tolerance` válido. "
+    "Crie experimentos válidos no formato JSON focador nas vulnerabilidades críticas. Não inclua URLs fictícias como 'http://your-service/...'"
+    "Certifique-se de adicionar um `steady-state-hypothesis` com `tolerance` válido. "
     "Não gere experimentos que necessitem de ajustes manuais. Não adicione comentários ou instruções, gere somente os scripts."
     "Não use funções customizadas, use apenas as features default."
 )
@@ -81,8 +81,6 @@ def analyze_vulnerability(vulnerability):
 
         content = response['choices'][0]['message']['content'].strip()
         json_content = extract_json_from_response(content)
-
-        print(f"{json_content}")
 
         if json_content:
             try:

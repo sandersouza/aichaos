@@ -1,0 +1,39 @@
+{
+    "version": "1.0",
+    "title": "aom: heap-buffer-overflow on frame size change",
+    "description": "Increasing the resolution of video frames, while performing a multi-threaded encode, can result in a heap overflow in av1_loop_restoration_dealloc().",
+    "steady-state-hypothesis": {
+        "title": "Service is in steady state",
+        "hints": [
+            "Check that response time is within acceptable limits"
+        ],
+        "tolerance": {
+            "type": "percent",
+            "value": 95
+        },
+        "provider": {
+            "type": "http",
+            "url": "http://your-service/health",
+            "method": "GET",
+            "status": [
+                200
+            ]
+        }
+    },
+    "method": [
+        {
+            "type": "http",
+            "name": "simulate_heap_buffer_overflow",
+            "url": "http://your-service/encode",
+            "method": "POST",
+            "payload": {
+                "frame_size": "large",
+                "multi_threaded": true
+            },
+            "headers": {
+                "Content-Type": "application/json"
+            }
+        }
+    ],
+    "rollbacks": []
+}

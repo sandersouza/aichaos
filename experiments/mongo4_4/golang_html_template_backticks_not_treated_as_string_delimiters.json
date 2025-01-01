@@ -1,0 +1,37 @@
+{
+    "version": "1.0",
+    "title": "golang: html/template: backticks not treated as string delimiters",
+    "description": "Test for vulnerabilities related to backticks in Go templates.",
+    "steady-state-hypothesis": {
+        "title": "Service is stable",
+        "probes": [
+            {
+                "type": "http",
+                "name": "check service health",
+                "tolerance": 200,
+                "provider": {
+                    "type": "http",
+                    "url": "http://your-service/health",
+                    "method": "GET"
+                }
+            }
+        ]
+    },
+    "method": [
+        {
+            "type": "http",
+            "name": "inject malicious template",
+            "provider": {
+                "type": "http",
+                "url": "http://your-service/submit",
+                "method": "POST",
+                "payload": {
+                    "template": "var a = `{{.}}`"
+                },
+                "headers": {
+                    "Content-Type": "application/json"
+                }
+            }
+        }
+    ]
+}

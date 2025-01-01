@@ -1,0 +1,60 @@
+{
+    "version": "1.0",
+    "title": "golang: html/template: improper handling of JavaScript whitespace",
+    "description": "Not all valid JavaScript whitespace characters are considered to be whitespace. Templates containing whitespace characters outside of the character set '\\t\\n\\f\\r\\u0020\\u2028\\u2029' in JavaScript contexts that also contain actions may not be properly sanitized during execution.",
+    "steady-state-hypothesis": {
+        "title": "Check service stability during chaos experiment",
+        "hints": [
+            "Response time should be less than 300ms",
+            "Error rate should be less than 5%"
+        ],
+        "tolerance": 0.05,
+        "probes": [
+            {
+                "type": "http",
+                "name": "http_response_time",
+                "url": "http://your-service/health",
+                "method": "GET",
+                "success_condition": {
+                    "type": "response_time",
+                    "tolerance": 0.3
+                }
+            },
+            {
+                "type": "http",
+                "name": "http_error_rate",
+                "url": "http://your-service/health",
+                "method": "GET",
+                "success_condition": {
+                    "type": "status_code",
+                    "expected": [
+                        200
+                    ],
+                    "tolerance": 0.05
+                }
+            }
+        ]
+    },
+    "method": [
+        {
+            "type": "http",
+            "name": "introduce_whitespace_vulnerability",
+            "url": "http://your-service/template-test",
+            "method": "POST",
+            "payload": {
+                "template": "{{ .Name }} {{ .Action }} {{ .Whitespace }}",
+                "data": {
+                    "Name": "Test",
+                    "Action": "Execute",
+                    "Whitespace": "\u00a0"
+                }
+            },
+            "success_condition": {
+                "type": "status_code",
+                "expected": [
+                    200
+                ]
+            }
+        }
+    ]
+}

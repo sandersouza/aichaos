@@ -1,0 +1,56 @@
+{
+    "version": "1.0",
+    "title": "golang: html/template: backticks not treated as string delimiters",
+    "description": "Templates do not properly consider backticks (`) as Javascript string delimiters, and do not escape them as expected.",
+    "steady-state-hypothesis": {
+        "title": "Check if service is stable",
+        "hints": [
+            "Response time should be under 200ms",
+            "Error rate should be less than 1%"
+        ],
+        "tolerance": 0.1,
+        "probes": [
+            {
+                "type": "probe",
+                "name": "http_check",
+                "http": {
+                    "url": "http://your-service/health",
+                    "method": "GET"
+                },
+                "condition": {
+                    "type": "equals",
+                    "path": "$.status",
+                    "value": "healthy"
+                }
+            },
+            {
+                "type": "probe",
+                "name": "response_time_check",
+                "http": {
+                    "url": "http://your-service/endpoint",
+                    "method": "GET"
+                },
+                "condition": {
+                    "type": "less_than",
+                    "path": "$.response_time",
+                    "value": 200
+                }
+            }
+        ]
+    },
+    "experiments": [
+        {
+            "name": "Inject arbitrary JS code via template",
+            "action": {
+                "type": "http",
+                "http": {
+                    "url": "http://your-service/template",
+                    "method": "POST",
+                    "data": {
+                        "template": "var a = `{{.}}`;"
+                    }
+                }
+            }
+        }
+    ]
+}
