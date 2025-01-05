@@ -23,16 +23,17 @@ if not config:
 
 API_KEY = config["token"]["OPENAI_API_KEY"]
 REPORTS_DIR = config["dir"]["vulnerabilities"]
-OUTPUT_DIR = config["dir"]["chaosexperiments"]
+OUTPUT_DIR = config["dir"]["exploits"]
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SYSTEM_MESSAGE_CONTENT = (
-    "Você é um especialista em criação de experimentos de chaos usando a ferramenta Chaos Toolkit 1.19.0 ( chaos, version 1.19.0 ). "
-    "Crie experimentos válidos no formato JSON focador nas vulnerabilidades críticas. Não inclua URLs fictícias como 'http://your-service/...'"
-    "Certifique-se de adicionar um `steady-state-hypothesis` com `tolerance` válido. "
-    "Não gere experimentos que necessitem de ajustes manuais. Não adicione comentários ou instruções, gere somente os scripts."
-    "Não use funções customizadas, use apenas as features default."
+    "Você é um especialista em Metasploit Framework." 
+    "Crie um script de exploit no formato .rc baseado nas vulnerabilidades críticas que lhe serão enviadas." 
+    "Certifique-se de gerar scripts válidos e funcionais, evitando placeholders fictícios como 'http://your-service/...'."
+    "O exploit sempre será executado localmente no container/pod que contém a vulnerabilidade, portanto use socket ou localhost."
+    "Seguem algumas dicas do próprio metasploit:"
+    "- Metasploit tip: You can pivot connections over sessions started with the ssh_login modules"
 )
 
 def sanitize_filename(filename):
@@ -51,18 +52,18 @@ def get_unique_filepath(base_path):
 
     return new_path
 
-def extract_json_from_response(content):
+def extract_rc_from_response(content):
     try:
-        # Captura o conteúdo entre ```json e ```
-        match = re.search(r"```json(.*?)```", content, re.DOTALL)
+        # Captura o conteúdo entre ``` e ```
+        match = re.search(r"```(.*?)```", content, re.DOTALL)
         if match:
-            json_content = match.group(1).strip()
-            return json_content
+            rc_content = match.group(1).strip()
+            return rc_content
         else:
-            print("Nenhum JSON válido encontrado no conteúdo gerado.")
+            print("Nenhum script RC válido encontrado no conteúdo gerado.")
             return None
     except Exception as e:
-        print(f"Erro ao extrair JSON: {e}")
+        print(f"Erro ao extrair script RC: {e}")
         return None
 
 def analyze_vulnerability(vulnerability):
@@ -80,21 +81,29 @@ def analyze_vulnerability(vulnerability):
         )
 
         content = response['choices'][0]['message']['content'].strip()
-        json_content = extract_json_from_response(content)
+        rc_content = extract_rc_from_response(content)
 
-        if json_content:
-            try:
-                parsed_content = json.loads(json_content)
-                return json.dumps(parsed_content, indent=4)
-            except json.JSONDecodeError:
-                print(f"Erro: O JSON extraído não é válido para '{vulnerability.get('Title', 'Título não disponível')}'.")
-                return None
+        if rc_content:
+            return rc_content
         else:
             return None
 
     except openai.error.OpenAIError as e:
-        print(f"Erro ao gerar experimento para '{vulnerability.get('Title', 'Título não disponível')}': {e}")
+        print(f"Erro ao gerar script RC para '{vulnerability.get('Title', 'Título não disponível')}': {e}")
         return None
+
+def save_info_file(image_dir, image_name, image_id, tag, severity, cve, description):
+    info_data = {
+        "image_name": image_name,
+        "image_id": image_id,
+        "severity": severity,
+        "cve": cve,
+        "description": description
+    }
+
+    info_file_path = os.path.join(image_dir, "info.json")
+    with open(info_file_path, "w") as info_file:
+        json.dump(info_data, info_file, indent=4)
 
 def process_reports():
     for file_name in os.listdir(REPORTS_DIR):
@@ -108,8 +117,10 @@ def process_reports():
                 print(f"Erro ao ler o arquivo {file_path}: {e}")
                 continue
 
-            image_name = sanitize_filename(data.get("ArtifactName", "unknown"))
-            image_dir = os.path.join(OUTPUT_DIR, image_name)
+            image_name = data.get("ArtifactName", "unknown")
+            image_id = data.get("Metadata", {}).get("ImageID", "unknown")
+            tag = image_name.split(":")[-1] if ":" in image_name else "latest"
+            image_dir = os.path.join(OUTPUT_DIR, sanitize_filename(image_name))
             os.makedirs(image_dir, exist_ok=True)
 
             vulnerabilities = data.get("Results", [])
@@ -117,15 +128,22 @@ def process_reports():
                 vulns = result.get("Vulnerabilities", [])
                 for vulnerability in vulns:
                     if vulnerability.get("Severity", "").upper() == "CRITICAL":
-                        experiment_content = analyze_vulnerability(vulnerability)
-                        if experiment_content:
-                            experiment_title = sanitize_filename(vulnerability.get("Title", "experiment"))
-                            experiment_file_path = os.path.join(image_dir, f"{experiment_title}.json")
-                            unique_file_path = get_unique_filepath(experiment_file_path)
+                        exploit_content = analyze_vulnerability(vulnerability)
+                        exploit_content = exploit_content.replace("plaintext", "")
+                        if exploit_content:
+                            exploit_title = sanitize_filename(vulnerability.get("Title", "exploit"))
+                            exploit_file_path = os.path.join(image_dir, f"{exploit_title}.rc")
+                            unique_file_path = get_unique_filepath(exploit_file_path)
 
-                            with open(unique_file_path, "w") as experiment_file:
-                                experiment_file.write(experiment_content)
-                            print(f"Experimento gerado e salvo: {unique_file_path}")
+                            with open(unique_file_path, "w") as exploit_file:
+                                exploit_file.write(exploit_content)
+
+                            print(f"Exploit gerado e salvo: {unique_file_path}")
+
+                            # Salvar arquivo info.json
+                            cve = vulnerability.get("VulnerabilityID", "unknown")
+                            description = vulnerability.get("Description", "Sem descrição disponível.")
+                            save_info_file(image_dir, image_name, image_id, tag, "CRITICAL", cve, description)
 
 if __name__ == "__main__":
     openai.api_key = API_KEY

@@ -28,13 +28,13 @@ O **Trivy** é uma ferramenta de código aberto usada para **detecção de vulne
    - Pode ser integrado a ferramentas de desenvolvimento para validação contínua.
 
 ## Modo de uso provisório
-### Listar vulnerabilidades de todas as imagens existentes
-Escaneie as imagens existentes no Docker / PODMAN. Por enquanto essa é forma massiva de ser feita, o objetivo é integra na esteira, e não precisar listar e classificar todas as vulnerabilidades de todas as imagens registradas.
+### Gerar relatório de vulnerabilidades de imagen existentes
+Seleciona a imagen desejada para SCAN.
 ```
-$ scan.sh
+$ select.sh
 ```
 
-O comando irá gerar um diretório ( trivy_reports ),  contendo arquivos JSON com a lista de vulnerabilidades por imagem.
+O comando irá gerar um diretório ( vulnerabilities ),  contendo arquivos JSON com a lista de vulnerabilidades da imagem selecionada.
 
 ### Execute a geração de scripts para teste de Chaos
 O script à seguir, faz um parser nos arquivos, captura as vulnerabilidades e usa o modelo gpt-4o-mini ou gpt-3.5-turbo para classifica-las e gerar scripts de testes para o Chaos Monkey.
