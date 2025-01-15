@@ -1,5 +1,5 @@
 ![AICHAOS](banner.png)
-# AI CHAOS Project
+# AI DEEPCHAOS Project
 ## Dependências
 - [x] Docker ou PODMAN ( Breve analise da imagem .tar )
 - [x] Tokens disponíveis no OpenAI / ChatGPT
