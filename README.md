@@ -1,5 +1,5 @@
 ![AICHAOS](banner.png)
-# AI DEEPCHAOS Project
+# AI DeepChaos Project
 ## Dependências
 - [x] Docker ou PODMAN ( Breve analise da imagem .tar )
 - [x] Tokens disponíveis no OpenAI / ChatGPT
@@ -43,3 +43,5 @@ O script à seguir, faz um parser nos arquivos, captura as vulnerabilidades e us
 $ generate.py
 ```
 
+## Fluxo proposto para CI/CD
+![FLOW](ai_deepchaos.gif)
