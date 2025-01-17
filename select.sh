@@ -1,7 +1,7 @@
 #!/bin/bash
 CONFIG_FILE="config.yml"
-OUTPUT_DIR=$(grep 'vulnerabilities:' "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
-SEVERITY=$(grep 'severity:' "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+OUTPUT_DIR=$(grep -E '^ *vulnerabilities:' "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+SEVERITY=$(grep -E '^ *severity:' "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
 
 detect_container_tool() {
     if command -v docker &>/dev/null; then
@@ -34,16 +34,18 @@ list_and_select_image() {
 
 function vulnerability_scan(){
     local IMAGE_NAME=$1
-    local OUTPUT_FILE="${OUTPUT_DIR}/${IMAGE_NAME}.json"
+    local FILE_NAME=$( echo $1 | sed "s/\:/\-/g;s/\./\_/g" )
+    local OUTPUT_FILE="${OUTPUT_DIR}/${FILE_NAME}-cve.txt"
 
     mkdir -p "$OUTPUT_DIR"
 
     echo -e "Scanning $IMAGE_NAME... wait."
-    result=$( trivy image -q --severity "$SEVERITY" --format json "$IMAGE_NAME" )
+    result=$( trivy image -q --severity "$SEVERITY" --format json "$IMAGE_NAME" | grep -i VulnerabilityID | awk '{ print $2 }' | sed "s/\"//g;s/,//g" )
     if [ -z "$result" ]; then 
-        "No vulnerabilities found. Have a good day sir!"
+        echo "No vulnerabilities found. Have a good day sir!"
     else
-        echo "$result" > "$OUTPUT_FILE"
+        echo $IMAGE_NAME > "$OUTPUT_FILE"
+        echo "$result" >> "$OUTPUT_FILE"
         echo -e "Vulnerability report generated."
     fi
 }
@@ -52,4 +54,4 @@ clear
 CONTAINER_TOOL=$(detect_container_tool)
 image=$(list_and_select_image "$CONTAINER_TOOL")
 vulnerability_scan $( echo $image | awk '{print $2}' )
-rm -rf exploits ; ./generate.py
+#rm -rf exploits ; ./generate.py $image

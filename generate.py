@@ -1,4 +1,5 @@
-#!./venv/bin/python3
+#!./venv/bin/python
+
 import os
 import json
 import openai
@@ -24,16 +25,16 @@ if not config:
 API_KEY = config["token"]["OPENAI_API_KEY"]
 REPORTS_DIR = config["dir"]["vulnerabilities"]
 OUTPUT_DIR = config["dir"]["exploits"]
+POSTMORTEM_DIR = config["dir"]["postmortem"]
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(POSTMORTEM_DIR, exist_ok=True)
 
 SYSTEM_MESSAGE_CONTENT = (
-    "Você é um especialista em Metasploit Framework." 
-    "Crie um script de exploit no formato .rc baseado nas vulnerabilidades críticas que lhe serão enviadas." 
-    "Certifique-se de gerar scripts válidos e funcionais, evitando placeholders fictícios como 'http://your-service/...'."
-    "O exploit sempre será executado localmente no container/pod que contém a vulnerabilidade, portanto use socket ou localhost."
-    "Seguem algumas dicas do próprio metasploit:"
-    "- Metasploit tip: You can pivot connections over sessions started with the ssh_login modules"
+    "Você é um especialista em Metasploit Framework. "
+    "O título do relatório será 'Relatório de vulnerabilidade - {CVE}', onde {CVE} precisa ser a CVE especificada. "
+    "Os links que forem gerados como referência deverão ser separados em TÍTULO e o LINK deve estar completo (https://xyz.com) entre parênteses. "
+    "Irei lhe passar uma CVE, se existir módulo para ela no Metasploit, gere um RC, senão faça um relatório explicando com a extensão .md, e no formato Markdown."
 )
 
 def sanitize_filename(filename):
@@ -54,20 +55,18 @@ def get_unique_filepath(base_path):
 
 def extract_rc_from_response(content):
     try:
-        # Captura o conteúdo entre ``` e ```
         match = re.search(r"```(.*?)```", content, re.DOTALL)
         if match:
             rc_content = match.group(1).strip()
             return rc_content
         else:
-            print("Nenhum script RC válido encontrado no conteúdo gerado.")
             return None
     except Exception as e:
         print(f"Erro ao extrair script RC: {e}")
         return None
 
-def analyze_vulnerability(vulnerability):
-    prompt = f"{SYSTEM_MESSAGE_CONTENT}\n- Título: {vulnerability.get('Title', 'Título não disponível')}\n- Descrição: {vulnerability.get('Description', 'Descrição não disponível')}"
+def analyze_vulnerability(cve):
+    prompt = f"Existe módulo para {cve}? Caso exista, gere o script RC. Caso contrário, forneça um relatório sobre a vulnerabilidade."
 
     try:
         response = openai.ChatCompletion.create(
@@ -84,67 +83,51 @@ def analyze_vulnerability(vulnerability):
         rc_content = extract_rc_from_response(content)
 
         if rc_content:
-            return rc_content
+            return rc_content, None
         else:
-            return None
+            return None, content
 
     except openai.error.OpenAIError as e:
-        print(f"Erro ao gerar script RC para '{vulnerability.get('Title', 'Título não disponível')}': {e}")
-        return None
+        print(f"Erro ao analisar a CVE '{cve}': {e}")
+        return None, None
 
-def save_info_file(image_dir, image_name, image_id, tag, severity, cve, description):
-    info_data = {
-        "image_name": image_name,
-        "image_id": image_id,
-        "severity": severity,
-        "cve": cve,
-        "description": description
-    }
-
-    info_file_path = os.path.join(image_dir, "info.json")
-    with open(info_file_path, "w") as info_file:
-        json.dump(info_data, info_file, indent=4)
-
-def process_reports():
+def process_vulnerabilities():
     for file_name in os.listdir(REPORTS_DIR):
-        if file_name.endswith(".json"):
+        if file_name.endswith("-cve.txt"):
             file_path = os.path.join(REPORTS_DIR, file_name)
 
-            try:
-                with open(file_path, "r") as file:
-                    data = json.load(file)
-            except json.JSONDecodeError as e:
-                print(f"Erro ao ler o arquivo {file_path}: {e}")
-                continue
+            with open(file_path, "r") as file:
+                cves = file.read().splitlines()
 
-            image_name = data.get("ArtifactName", "unknown")
-            image_id = data.get("Metadata", {}).get("ImageID", "unknown")
-            tag = image_name.split(":")[-1] if ":" in image_name else "latest"
-            image_dir = os.path.join(OUTPUT_DIR, sanitize_filename(image_name))
-            os.makedirs(image_dir, exist_ok=True)
+            image_name = cves.pop(0)  # First line is the image name
+            sanitized_image_name = sanitize_filename(image_name)
+            image_output_dir = os.path.join(OUTPUT_DIR, sanitized_image_name)
+            os.makedirs(image_output_dir, exist_ok=True)
 
-            vulnerabilities = data.get("Results", [])
-            for result in vulnerabilities:
-                vulns = result.get("Vulnerabilities", [])
-                for vulnerability in vulns:
-                    if vulnerability.get("Severity", "").upper() == "CRITICAL":
-                        exploit_content = analyze_vulnerability(vulnerability)
-                        exploit_content = exploit_content.replace("plaintext", "")
-                        if exploit_content:
-                            exploit_title = sanitize_filename(vulnerability.get("Title", "exploit"))
-                            exploit_file_path = os.path.join(image_dir, f"{exploit_title}.rc")
-                            unique_file_path = get_unique_filepath(exploit_file_path)
+            # Save the image name in image.txt
+            image_txt_path = os.path.join(image_output_dir, "image.txt")
+            with open(image_txt_path, "w") as image_file:
+                image_file.write(image_name)
 
-                            with open(unique_file_path, "w") as exploit_file:
-                                exploit_file.write(exploit_content)
+            for cve in cves:
+                base_name = sanitize_filename(cve)
+                exploit_file_path = os.path.join(image_output_dir, f"{base_name}.rc")
+                postmortem_file_path = os.path.join(POSTMORTEM_DIR, f"{base_name}.md")
 
-                            print(f"Exploit gerado e salvo: {unique_file_path}")
+                rc_content, report_content = analyze_vulnerability(cve)
 
-                            # Salvar arquivo info.json
-                            cve = vulnerability.get("VulnerabilityID", "unknown")
-                            description = vulnerability.get("Description", "Sem descrição disponível.")
-                            save_info_file(image_dir, image_name, image_id, tag, "CRITICAL", cve, description)
+                if rc_content:
+                    unique_exploit_path = get_unique_filepath(exploit_file_path)
+                    with open(unique_exploit_path, "w") as exploit_file:
+                        exploit_file.write(rc_content)
+                    print(f"Exploit gerado: {unique_exploit_path}")
+
+                elif report_content:
+                    unique_postmortem_path = get_unique_filepath(postmortem_file_path)
+                    with open(unique_postmortem_path, "w") as report_file:
+                        report_file.write(report_content)
+                    print(f"Relatório gerado: {unique_postmortem_path}")
 
 if __name__ == "__main__":
     openai.api_key = API_KEY
-    process_reports()
+    process_vulnerabilities()
