@@ -34,7 +34,7 @@ list_and_select_image() {
 
 function vulnerability_scan(){
     local IMAGE_NAME=$1
-    local FILE_NAME=$( echo $1 | sed "s/\:/\-/g;s/\./\_/g" )
+    local FILE_NAME=$( echo $IMAGE_NAME | sed "s/\:/\-/g;s/\./\_/g;s/\//-/g" )
     local OUTPUT_FILE="${OUTPUT_DIR}/${FILE_NAME}-cve.txt"
 
     mkdir -p "$OUTPUT_DIR"
@@ -53,5 +53,5 @@ function vulnerability_scan(){
 clear
 CONTAINER_TOOL=$(detect_container_tool)
 image=$(list_and_select_image "$CONTAINER_TOOL")
-vulnerability_scan $( echo $image | awk '{print $2}' )
+vulnerability_scan "$( echo $image | awk '{print $2}' )"
 #rm -rf exploits ; ./generate.py $image

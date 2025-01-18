@@ -1,4 +1,4 @@
-#!./venv/bin/python
+#!python3
 
 import os
 import json
@@ -31,10 +31,9 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(POSTMORTEM_DIR, exist_ok=True)
 
 SYSTEM_MESSAGE_CONTENT = (
-    "Você é um especialista em Metasploit Framework. "
-    "O título do relatório será 'Relatório de vulnerabilidade - {CVE}', onde {CVE} precisa ser a CVE especificada. "
-    "Os links que forem gerados como referência deverão ser separados em TÍTULO e o LINK deve estar completo (https://xyz.com) entre parênteses. "
-    "Irei lhe passar uma CVE, se existir módulo para ela no Metasploit, gere um RC, senão faça um relatório explicando com a extensão .md, e no formato Markdown."
+    "Você é um especialista em Metasploit, todos os scripts serão executados localmente, e seu usuário tem acesso irrestrito inclusive ao ROOT."
+    "Irei lhe passar uma CVE, se existir módulo para ela no Metasploit, gere um script (.rc), não precisa dar explicaçõe e coloque no início o comentário #SCRIPT."
+    "Senão gere relatório da CVE em latex usando a formatação estilo markdown. Inclua os links referenciais, dicas de mitigação e coloque no início a tag #POSTMORTEM."
 )
 
 def sanitize_filename(filename):
@@ -53,17 +52,16 @@ def get_unique_filepath(base_path):
 
     return new_path
 
-def extract_rc_from_response(content):
-    try:
-        match = re.search(r"```(.*?)```", content, re.DOTALL)
-        if match:
-            rc_content = match.group(1).strip()
-            return rc_content
-        else:
-            return None
-    except Exception as e:
-        print(f"Erro ao extrair script RC: {e}")
-        return None
+def extract_tagged_content(content):
+    script_match = re.search(r"#SCRIPT\s+'''(.*?)'''", content, re.DOTALL)
+    if script_match:
+        return "script", script_match.group(1).strip()
+
+    postmortem_match = re.search(r"#POSTMORTEM\s+(.*)", content, re.DOTALL)
+    if postmortem_match:
+        return "postmortem", postmortem_match.group(1).strip()
+
+    return None, content
 
 def analyze_vulnerability(cve):
     prompt = f"Existe módulo para {cve}? Caso exista, gere o script RC. Caso contrário, forneça um relatório sobre a vulnerabilidade."
@@ -80,12 +78,12 @@ def analyze_vulnerability(cve):
         )
 
         content = response['choices'][0]['message']['content'].strip()
-        rc_content = extract_rc_from_response(content)
+        content_type, sanitized_content = extract_tagged_content(content)
 
-        if rc_content:
-            return rc_content, None
-        else:
-            return None, content
+        if content_type is None:
+            print(f"[WARNING] Tag inválida ou ausente para {cve}. Conteúdo: {content}")
+
+        return content_type, sanitized_content
 
     except openai.error.OpenAIError as e:
         print(f"Erro ao analisar a CVE '{cve}': {e}")
@@ -102,7 +100,9 @@ def process_vulnerabilities():
             image_name = cves.pop(0)  # First line is the image name
             sanitized_image_name = sanitize_filename(image_name)
             image_output_dir = os.path.join(OUTPUT_DIR, sanitized_image_name)
+            postmortem_output_dir = os.path.join(POSTMORTEM_DIR, sanitized_image_name)
             os.makedirs(image_output_dir, exist_ok=True)
+            os.makedirs(postmortem_output_dir, exist_ok=True)
 
             # Save the image name in image.txt
             image_txt_path = os.path.join(image_output_dir, "image.txt")
@@ -112,21 +112,24 @@ def process_vulnerabilities():
             for cve in cves:
                 base_name = sanitize_filename(cve)
                 exploit_file_path = os.path.join(image_output_dir, f"{base_name}.rc")
-                postmortem_file_path = os.path.join(POSTMORTEM_DIR, f"{base_name}.md")
+                postmortem_file_path = os.path.join(postmortem_output_dir, f"{base_name}.md")
 
-                rc_content, report_content = analyze_vulnerability(cve)
+                content_type, sanitized_content = analyze_vulnerability(cve)
 
-                if rc_content:
+                if content_type == "script":
                     unique_exploit_path = get_unique_filepath(exploit_file_path)
                     with open(unique_exploit_path, "w") as exploit_file:
-                        exploit_file.write(rc_content)
+                        exploit_file.write(sanitized_content)
                     print(f"Exploit gerado: {unique_exploit_path}")
 
-                elif report_content:
+                elif content_type == "postmortem":
                     unique_postmortem_path = get_unique_filepath(postmortem_file_path)
                     with open(unique_postmortem_path, "w") as report_file:
-                        report_file.write(report_content)
+                        report_file.write(sanitized_content)
                     print(f"Relatório gerado: {unique_postmortem_path}")
+
+                else:
+                    print(f"[INFO] Nenhuma ação realizada para a CVE '{cve}' - Sem tag válida no conteúdo.")
 
 if __name__ == "__main__":
     openai.api_key = API_KEY

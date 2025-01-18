@@ -1,0 +1,3 @@
+nginx:latest
+CVE-2023-6879
+CVE-2023-45853
