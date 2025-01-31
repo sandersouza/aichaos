@@ -98,7 +98,6 @@ main() {
 
     navigate_and_select_exploit
     start_target_container
-    start_metasploit_container
     execute_exploit
     cleanup
 }

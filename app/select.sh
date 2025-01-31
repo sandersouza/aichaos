@@ -29,29 +29,19 @@ list_and_select_image() {
         exit 0
     fi
 
-    echo $selected_image
+    local image_id=$(echo "$selected_image" | awk '{print $1}')
+    echo $image_id
 }
 
-function vulnerability_scan(){
-    local IMAGE_NAME=$1
-    local FILE_NAME=$( echo $IMAGE_NAME | sed "s/\:/\-/g;s/\./\_/g;s/\//-/g" )
-    local OUTPUT_FILE="${OUTPUT_DIR}/${FILE_NAME}-cve.txt"
+main() {
+    local container_tool=$(detect_container_tool)
+    local image_id=$(list_and_select_image $container_tool)
 
-    mkdir -p "$OUTPUT_DIR"
-
-    echo -e "Scanning $IMAGE_NAME... wait."
-    result=$( trivy image -q --severity "$SEVERITY" --format json "$IMAGE_NAME" | grep -i VulnerabilityID | awk '{ print $2 }' | sed "s/\"//g;s/,//g" )
-    if [ -z "$result" ]; then 
-        echo "No vulnerabilities found. Have a good day sir!"
-    else
-        echo $IMAGE_NAME > "$OUTPUT_FILE"
-        echo "$result" >> "$OUTPUT_FILE"
-        echo -e "Vulnerability report generated."
+    if [[ -n "$image_id" ]]; then
+        mkdir -p "$OUTPUT_DIR"
+        trivy image -q --severity "$SEVERITY" --format json "$image_id" | jq -r '.Results[]?.Vulnerabilities[]?.VulnerabilityID // empty' > "$OUTPUT_DIR/$image_id.txt"
+        $container_tool inspect "$image_id" > "$OUTPUT_DIR/$image_id.json"
     fi
 }
 
-clear
-CONTAINER_TOOL=$(detect_container_tool)
-image=$(list_and_select_image "$CONTAINER_TOOL")
-vulnerability_scan "$( echo $image | awk '{print $2}' )"
-#rm -rf exploits ; ./generate.py $image
+main
